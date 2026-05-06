@@ -24,8 +24,11 @@ function init_project()
     controller_params;
     sensor_params;
     sim_params;
+    fixedwing_params;
+    aero_params;
 
     fprintf('drone-simulink 项目已初始化\n');
     fprintf('  项目根目录: %s\n', root);
-    fprintf('  运行 quad_hover 开始悬停仿真\n');
+    fprintf('  运行 quad_hover 开始四旋翼悬停仿真\n');
+    fprintf('  运行 fw_level_flight 开始固定翼平飞仿真\n');
 end

@@ -38,3 +38,32 @@ ctrl.anti_windup = 50;       % 积分限幅
 %% 控制频率
 ctrl.pos_rate = 10;          % 位置环频率 [Hz]
 ctrl.att_rate = 50;          % 姿态环频率 [Hz]
+
+%% ========== 固定翼控制器参数 ==========
+%% 高度控制 (AltitudeController)
+ctrl.fw.Kp_alt = 0.5;       % 高度 -> 俯仰角 比例增益
+ctrl.fw.Kd_alt = 0.3;       % 高度 -> 俯仰角 微分增益
+
+ctrl.fw.Kp_pitch = 2.0;     % 俯仰角 -> 升降舵 比例增益
+ctrl.fw.Ki_pitch = 0.1;     % 俯仰角 -> 升降舵 积分增益
+ctrl.fw.Kd_pitch = 0.5;     % 俯仰角 -> 升降舵 微分增益
+
+ctrl.fw.Kp_throttle = 0.3;  % 空速 -> 油门 比例增益
+ctrl.fw.Ki_throttle = 0.05; % 空速 -> 油门 积分增益
+ctrl.fw.Kd_throttle = 0.01; % 空速 -> 油门 微分增益
+
+%% 航向控制 (HeadingController)
+ctrl.fw.Kp_heading = 1.0;   % 航向 -> 滚转角 比例增益
+ctrl.fw.Ki_heading = 0.05;  % 航向 -> 滚转角 积分增益
+ctrl.fw.Kd_heading = 0.2;   % 航向 -> 滚转角 微分增益
+
+ctrl.fw.Kp_roll = 3.0;      % 滚转角 -> 副翼 比例增益
+ctrl.fw.Ki_roll = 0.1;      % 滚转角 -> 副翼 积分增益
+ctrl.fw.Kd_roll = 0.5;      % 滚转角 -> 副翼 微分增益
+
+ctrl.fw.Kp_yaw = 0.5;       % 侧滑角 -> 方向舵 比例增益
+ctrl.fw.Kd_yaw = 0.1;       % 侧滑角 -> 方向舵 微分增益
+
+%% 固定翼控制频率
+ctrl.fw.alt_rate = 10;      % 高度环频率 [Hz]
+ctrl.fw.heading_rate = 10;  % 航向环频率 [Hz]
