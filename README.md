@@ -1,6 +1,11 @@
 # Drone Simulink 仿真平台
 
-渐进式无人机仿真项目，从四旋翼起步，逐步扩展到固定翼、eVTOL、复合翼、模块化、集群。
+[![MATLAB](https://img.shields.io/badge/MATLAB-R2022b+-orange.svg)](https://www.mathworks.com/)
+[![Simulink](https://img.shields.io/badge/Simulink-支持-blue.svg)](https://www.mathworks.com/products/simulink.html)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> 渐进式无人机仿真平台 — 6 种构型, 从四旋翼到集群
+> MATLAB 脚本仿真 + Simulink 控制框图模型, 覆盖从动力学到控制全链路
 
 ---
 
@@ -80,14 +85,22 @@ drone-simulink/
 │   └── animate_3d.m        # 3D 动画
 ├── sim/                    # 仿真脚本
 │   ├── run_quad_sim.m      # 四旋翼仿真主函数
-│   └── run_fixedwing_sim.m # 固定翼仿真主函数
-├── examples/               # 示例场景
+│   ├── run_fixedwing_sim.m # 固定翼仿真主函数
+│   ├── run_evtol_sim.m     # eVTOL 仿真主函数
+│   ├── run_compound_sim.m  # 复合翼仿真主函数
+│   └── run_all_demos.m     # 全构型演示
+├── examples/               # 示例场景 (11 个)
 │   ├── quad_hover.m        # 四旋翼悬停
 │   ├── quad_circle.m       # 四旋翼圆形轨迹
 │   ├── quad_high_fidelity.m # 高保真仿真 (地面效应/电池/湍流)
 │   ├── fw_level_flight.m   # 固定翼平飞
 │   ├── fw_turn.m           # 固定翼转弯
-│   └── fw_climb_descent.m  # 固定翼爬升/下降
+│   ├── fw_climb_descent.m  # 固定翼爬升/下降
+│   ├── evtol_transition.m  # eVTOL 过渡飞行
+│   ├── evtol_mission.m     # eVTOL 完整任务
+│   ├── compound_vtol.m     # 复合翼 VTOL 任务
+│   ├── modular_fault.m     # 模块化故障注入
+│   └── swarm_formation.m   # 集群编队
 ├── tests/                  # 单元测试
 │   ├── test_dynamics.m     # 动力学测试
 │   ├── test_controller.m   # 控制器测试
