@@ -17,6 +17,7 @@ classdef EvtolDynamics < DroneDynamics
         omega           % 4x1 当前电机转速 [rad/s]
         mode            % 'hover', 'transition', 'cruise'
         energy_used     % 累计能耗 [Wh]
+        sim_dt          % 仿真步长 [s] (用于一阶惯性)
     end
 
     methods
@@ -28,6 +29,7 @@ classdef EvtolDynamics < DroneDynamics
             obj.omega = zeros(4, 1);
             obj.mode = 'hover';
             obj.energy_used = 0;
+            obj.sim_dt = 0.001;  % 默认步长
         end
 
         function reset(obj, pos, vel, att, rates, tilt_init)
@@ -127,7 +129,7 @@ classdef EvtolDynamics < DroneDynamics
 
         function update_tilt(obj, ~)
         %UPDATE_TILT  更新倾转角 (一阶惯性响应)
-            dt = 0.001;  % 假设固定步长
+            dt = obj.sim_dt;
             alpha = dt / obj.params.tau_tilt;
             obj.tilt_angles = obj.tilt_angles + alpha * (obj.tilt_cmd - obj.tilt_angles);
 
@@ -146,7 +148,7 @@ classdef EvtolDynamics < DroneDynamics
             M_rotors = zeros(3, 1);
 
             % 更新电机转速 (一阶惯性)
-            dt = 0.001;
+            dt = obj.sim_dt;
             alpha = dt / obj.params.tau_m;
             obj.omega = obj.omega + alpha * (omega_cmd(:) - obj.omega);
             obj.omega = max(0, min(obj.params.omega_max, obj.omega));
@@ -212,7 +214,7 @@ classdef EvtolDynamics < DroneDynamics
 
         function compute_energy(obj, omega_cmd, t)
         %COMPUTE_energy  计算能耗
-            dt = 0.001;
+            dt = obj.sim_dt;
 
             % 功率 = 推力 * 速度 / 效率
             % 简化: P = k_t * omega^3 * (1/eta)

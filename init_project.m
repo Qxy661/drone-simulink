@@ -17,6 +17,7 @@ function init_project()
     addpath(fullfile(root, 'sim'));
     addpath(fullfile(root, 'examples'));
     addpath(fullfile(root, 'tests'));
+    addpath(fullfile(root, 'models'));
 
     % 加载基础参数
     quad_params;

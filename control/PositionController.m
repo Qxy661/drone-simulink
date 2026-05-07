@@ -13,6 +13,7 @@ classdef PositionController < handle
         z_pid           % Z 轴 PID
         params          % 控制器参数
         hover_thrust    % 悬停推力 [N]
+        mass            % 质量 [kg]
     end
 
     methods
@@ -20,6 +21,7 @@ classdef PositionController < handle
             obj.params = ctrl_params;
 
             % 悬停推力 = m*g
+            obj.mass = quad_params.mass;
             obj.hover_thrust = quad_params.mass * quad_params.g;
 
             % 创建各轴 PID
@@ -78,7 +80,7 @@ classdef PositionController < handle
             att_des = [phi_des; theta_des; psi_des];
 
             % 推力 = 悬停推力 + 垂直加速度补偿
-            thrust = obj.hover_thrust + obj.params.mass * az;
+            thrust = obj.hover_thrust + obj.mass * az;
             thrust = max(0, thrust);  % 不能为负
         end
 

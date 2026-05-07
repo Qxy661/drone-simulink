@@ -47,24 +47,45 @@ classdef AttitudeController < handle
         %     rates_cur - 3x1 当前角速度 [p; q; r] (rad/s)
         %   输出:
         %     torques - 3x1 力矩命令 [tau_phi; tau_theta; tau_psi]
+        %
+        %   架构: P(角度误差) - D(角速度) + I(角度误差积分)
+        %   微分项直接使用陀螺仪测量, 避免数值微分噪声
 
             % 姿态误差
             err = att_des(:) - att_cur(:);
-
-            % 角度归一化到 [-pi, pi]
             err = mod(err + pi, 2*pi) - pi;
 
-            % PID 计算 (用角度误差作为比例, 角速度作为微分)
-            tau_phi = obj.roll_pid.update(err(1));
-            tau_theta = obj.pitch_pid.update(err(2));
-            tau_psi = obj.yaw_pid.update(err(3));
+            % P 项
+            P = [obj.params.att.Kp_phi * err(1);
+                 obj.params.att.Kp_theta * err(2);
+                 obj.params.att.Kp_psi * err(3)];
 
-            % 补偿角速度项 (角速度阻尼)
-            tau_phi = tau_phi - obj.params.att.Kd_phi * rates_cur(1);
-            tau_theta = tau_theta - obj.params.att.Kd_theta * rates_cur(2);
-            tau_psi = tau_psi - obj.params.att.Kd_psi * rates_cur(3);
+            % I 项 (通过 PID 对象维护积分)
+            I_term = [obj.params.att.Ki_phi * obj.roll_pid.integral;
+                      obj.params.att.Ki_theta * obj.pitch_pid.integral;
+                      obj.params.att.Ki_psi * obj.yaw_pid.integral];
+            % 更新积分
+            obj.roll_pid.integral = obj.roll_pid.integral + err(1) * obj.roll_pid.dt;
+            obj.pitch_pid.integral = obj.pitch_pid.integral + err(2) * obj.pitch_pid.dt;
+            obj.yaw_pid.integral = obj.yaw_pid.integral + err(3) * obj.yaw_pid.dt;
+            % 积分限幅
+            obj.roll_pid.integral = max(-obj.roll_pid.int_max, min(obj.roll_pid.int_max, obj.roll_pid.integral));
+            obj.pitch_pid.integral = max(-obj.pitch_pid.int_max, min(obj.pitch_pid.int_max, obj.pitch_pid.integral));
+            obj.yaw_pid.integral = max(-obj.yaw_pid.int_max, min(obj.yaw_pid.int_max, obj.yaw_pid.integral));
+            I_term = [obj.params.att.Ki_phi * obj.roll_pid.integral;
+                      obj.params.att.Ki_theta * obj.pitch_pid.integral;
+                      obj.params.att.Ki_psi * obj.yaw_pid.integral];
 
-            torques = [tau_phi; tau_theta; tau_psi];
+            % D 项 (直接用陀螺仪角速度, 负反馈阻尼)
+            D = [-obj.params.att.Kd_phi * rates_cur(1);
+                 -obj.params.att.Kd_theta * rates_cur(2);
+                 -obj.params.att.Kd_psi * rates_cur(3)];
+
+            torques = P + I_term + D;
+
+            % 输出限幅
+            max_torque = obj.params.att.max_torque;
+            torques = max(-max_torque, min(max_torque, torques));
         end
 
         function reset(obj)

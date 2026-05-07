@@ -179,15 +179,15 @@ classdef TransitionController < handle
         end
 
         function torques = attitude_control(obj, att_des, att_cur, rates_cur)
-        %ATTITUDE_control  简化姿态控制
+        %ATTITUDE_control  简化姿态控制 (使用统一参数)
             err = att_des(:) - att_cur(:);
             err = mod(err + pi, 2*pi) - pi;
 
-            Kp = [4.0; 4.0; 3.0];
-            Kd = [0.5; 0.5; 0.8];
+            Kp = [obj.params.att.Kp_phi; obj.params.att.Kp_theta; obj.params.att.Kp_psi];
+            Kd = [obj.params.att.Kd_phi; obj.params.att.Kd_theta; obj.params.att.Kd_psi];
 
             torques = Kp .* err - Kd .* rates_cur;
-            max_torque = 5.0;
+            max_torque = obj.params.att.max_torque;
             torques = max(-max_torque, min(max_torque, torques));
         end
 
@@ -195,18 +195,20 @@ classdef TransitionController < handle
         %MIXER  简化混控器
             kt = obj.evtol_params.k_t;
             kd = obj.evtol_params.k_d;
-            l = obj.evtol_params.arm_length;
 
             % 简化: 均分推力 + 力矩修正
+            thrust = max(0, thrust);
             hover_omega = sqrt(thrust / (obj.evtol_params.n_rotors * kt));
 
             omega_cmd = ones(4, 1) * hover_omega;
 
-            % 力矩修正 (简化)
-            omega_cmd(1) = omega_cmd(1) + torques(3) / (4 * kd * hover_omega);
-            omega_cmd(2) = omega_cmd(2) - torques(3) / (4 * kd * hover_omega);
-            omega_cmd(3) = omega_cmd(3) - torques(3) / (4 * kd * hover_omega);
-            omega_cmd(4) = omega_cmd(4) + torques(3) / (4 * kd * hover_omega);
+            % 力矩修正 (需要 hover_omega > 0)
+            if hover_omega > 1
+                omega_cmd(1) = omega_cmd(1) + torques(3) / (4 * kd * hover_omega);
+                omega_cmd(2) = omega_cmd(2) - torques(3) / (4 * kd * hover_omega);
+                omega_cmd(3) = omega_cmd(3) - torques(3) / (4 * kd * hover_omega);
+                omega_cmd(4) = omega_cmd(4) + torques(3) / (4 * kd * hover_omega);
+            end
 
             omega_cmd = max(0, min(obj.evtol_params.omega_max, omega_cmd));
         end

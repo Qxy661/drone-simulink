@@ -24,6 +24,7 @@ classdef ModularDynamics < handle
         mixer           % 混控矩阵
         mixer_pinv      % 伪逆混控矩阵
         energy_used     % 能耗
+        sim_dt          % 仿真步长 [s]
     end
 
     methods
@@ -45,6 +46,7 @@ classdef ModularDynamics < handle
             obj.state = zeros(12, 1);
             obj.omega = zeros(config.n_rotors, 1);
             obj.energy_used = 0;
+            obj.sim_dt = 0.001;
 
             % 初始化故障状态 (无故障)
             obj.fault = struct();
@@ -113,7 +115,7 @@ classdef ModularDynamics < handle
             R = euler_to_rotation(phi, theta, psi);
 
             % 更新转速 (一阶惯性 + 故障效率)
-            dt = 0.001;
+            dt = obj.sim_dt;
             alpha = dt / obj.config.tau_m;
             omega_ideal = obj.omega + alpha * (omega_cmd(:) - obj.omega);
 
@@ -165,7 +167,7 @@ classdef ModularDynamics < handle
 
             % 能耗
             P = sum(obj.config.k_t * obj.omega.^3) / 0.85;
-            obj.energy_used = obj.energy_used + P * dt / 3600;
+            obj.energy_used = obj.energy_used + P * obj.sim_dt / 3600;
         end
 
         function omega_cmd = adaptive_mix(obj, commands)

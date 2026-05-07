@@ -224,3 +224,83 @@ plot_results(t, state);
 - 增大微分增益 (`Kd`)
 
 详见 [tuning_guide.md](tuning_guide.md)。
+
+---
+
+## 9. 高保真物理模型
+
+本项目支持多种高保真物理效应，适用于更真实的仿真场景。
+
+### 9.1 四元数姿态表示
+
+避免万向锁，支持全姿态域仿真：
+
+```matlab
+dyn = QuadcopterDynamics(quad);
+dyn.use_quaternion = true;
+dyn.reset([0;0;5], [0;0;0], [0;0;0], [0;0;0]);
+
+% 使用四元数动力学
+state_dot = dyn.dynamics_quat(0, dyn.state, forces, moments);
+```
+
+四元数运算工具：
+```matlab
+q = quaternion_ops('from_euler', phi, theta, psi);
+R = quaternion_ops('to_rotation', q);
+[phi, theta, psi] = quaternion_ops('to_euler', q);
+```
+
+### 9.2 地面效应
+
+近地面悬停时推力增加：
+
+```matlab
+dyn = QuadcopterDynamics(quad);
+f_ge = dyn.ground_effect_factor(0.15);  % 15cm 高度
+% f_ge ≈ 1.15, 推力增加 15%
+```
+
+### 9.3 电池电压衰减
+
+模拟电池放电对推力的影响：
+
+```matlab
+dyn = QuadcopterDynamics(quad);
+dyn.battery_voltage = 0.8 * dyn.V_nominal;  % 80% 电量
+ct = dyn.battery_thrust_coeff();  % 推力系数降至 64%
+```
+
+### 9.4 涡环状态 (VRS) 检测
+
+检测并规避危险的涡环状态：
+
+```matlab
+dyn = QuadcopterDynamics(quad);
+[vrs, loss] = dyn.detect_vortex_ring(v_descent, omega_avg);
+if vrs
+    warning('VRS! 推力损失 %.0f%%', (1-loss)*100);
+end
+```
+
+### 9.5 Dryden 湍流模型
+
+使用 MIL-F-8785C 标准的湍流模型：
+
+```matlab
+wm = WindModel();
+wm.set_constant([5; 0; 0]);           % 常值风
+wm.set_turbulence_type('dryden');     % 启用 Dryden 湍流
+wm.V_airspeed = 15;                   % 当前空速
+wm.altitude = 100;                    % 当前高度
+
+wind = wm.update(dt);  % 返回 3x1 风速向量
+```
+
+### 9.6 运行高保真测试
+
+```matlab
+test_high_fidelity
+```
+
+测试覆盖：四元数运算、四元数动力学、地面效应、电池、VRS、前飞升力、失速模型、Dryden 湍流。

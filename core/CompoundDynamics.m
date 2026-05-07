@@ -17,6 +17,7 @@ classdef CompoundDynamics < DroneDynamics
         surfaces        % 舵面偏转
         mode            % 'hover', 'transition', 'cruise'
         energy_used     % 累计能耗 [Wh]
+        sim_dt          % 仿真步长 [s]
     end
 
     methods
@@ -28,6 +29,7 @@ classdef CompoundDynamics < DroneDynamics
             obj.surfaces = struct('elevator', 0, 'aileron', 0, 'rudder', 0);
             obj.mode = 'hover';
             obj.energy_used = 0;
+            obj.sim_dt = 0.001;
         end
 
         function reset(obj, pos, vel, att, rates)
@@ -63,7 +65,7 @@ classdef CompoundDynamics < DroneDynamics
             V_body = R' * vel;
 
             % 更新电机转速 (一阶惯性)
-            dt = 0.001;
+            dt = obj.sim_dt;
             lift_alpha = dt / obj.params.lift_tau;
             push_alpha = dt / obj.params.push_tau;
 
@@ -174,7 +176,7 @@ classdef CompoundDynamics < DroneDynamics
 
         function compute_energy(obj)
         %COMPUTE_energy  计算能耗
-            dt = 0.001;
+            dt = obj.sim_dt;
             eta = obj.params.motor_efficiency * obj.params.prop_efficiency;
 
             P_lift = sum(obj.params.lift_kt * obj.lift_omega.^3) / eta;

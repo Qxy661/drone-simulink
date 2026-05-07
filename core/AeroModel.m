@@ -117,16 +117,34 @@ classdef AeroModel < handle
         end
 
         function CL = CL_alpha(obj, alpha)
-        %CL_ALPHA  升力系数随迎角变化 (含失速)
+        %CL_ALPHA  升力系数随迎角变化 (C1 连续失速模型)
+        %   使用平滑混合函数替代分段线性, 确保 CL 和 dCL/dalpha 连续
+        %   参考: Gazebo LiftDrag 插件; Selig 等人低速翼型数据拟合
             a = obj.params;
-            if alpha < a.alpha_stall
-                CL = a.CL0 + a.CL_alpha * alpha;
+
+            % 线性区 (附着流)
+            CL_linear = a.CL0 + a.CL_alpha * alpha;
+
+            % 失速后模型 (简化的后失速特性)
+            CL_stall = a.CL0 + a.CL_alpha * a.alpha_stall;
+            slope_post = -0.5 * a.CL_alpha;  % 后失速斜率 (负值)
+            CL_post = CL_stall + slope_post * (alpha - a.alpha_stall);
+
+            % 平滑混合: 在 stall 附近用 sigmoid 过渡
+            % 过渡宽度 (越小越接近 C0 连续的分段)
+            delta = deg2rad(3);  % ~3° 过渡带
+            x = (alpha - a.alpha_stall) / delta;
+            % C1 连续 sigmoid: smoothstep-like 权重
+            % w = 0 in linear region, w = 1 in post-stall region
+            if x <= -1
+                w = 0;
+            elseif x >= 1
+                w = 1;
             else
-                % 失速后线性下降 (简化模型)
-                CL_stall = a.CL0 + a.CL_alpha * a.alpha_stall;
-                slope = -0.5;  % 失速后斜率
-                CL = CL_stall + slope * (alpha - a.alpha_stall);
+                w = 0.5 + 0.75*x - 0.25*x^3;  % Hermite smoothstep
             end
+
+            CL = (1 - w) * CL_linear + w * CL_post;
             CL = max(a.CL_min, min(a.CL_max, CL));
         end
 
