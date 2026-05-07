@@ -1,439 +1,463 @@
 function build_quad_model()
-%BUILD_QUAD_MODEL  构建四旋翼级联PID Simulink模型
-%   运行后生成 quad_cascade_pid.slx
-%   模型包含完整控制框图: 轨迹→位置环→姿态环→混控→电机→动力学→传感器
+%BUILD_QUAD_MODEL  构建四旋翼级联PID Simulink模型 (可直接运行)
+%   生成 quad_cascade_pid.slx
+%   控制框图: 轨迹→位置PID→姿态PD→混控→电机动力学→6DOF→反馈
+%
+%   所有动力学用 MATLAB Function block 实现, 控制器用标准 Simulink 块
 %
 %   用法:
-%     cd E:\drone-simulink
-%     init_project
-%     build_quad_model
+%     cd E:\drone-simulink; init_project; build_quad_model
 %     open_system('quad_cascade_pid')
+%     sim('quad_cascade_pid')
 
     mdl = 'quad_cascade_pid';
     if bdIsLoaded(mdl), close_system(mdl, 0); end
-    new_system(mdl);
-    open_system(mdl);
+    new_system(mdl); open_system(mdl);
 
-    %% 模型配置
     set_param(mdl, 'Solver','ode4','FixedStep','0.001','StopTime','20');
-    set_param(mdl, 'SaveFormat','StructureWithTime');
+    set_param(mdl, 'SaveFormat','StructureWithTime','StopTime','20');
 
-    %% ===================== 顶层模块 =====================
+    %% ========== 轨迹输入 ==========
+    add_const(mdl, 'X_des', 5,   [30,100,65,120]);
+    add_const(mdl, 'Y_des', 3,   [30,160,65,180]);
+    add_const(mdl, 'Z_des', 10,  [30,220,65,240]);
+    add_mux(mdl, 'Mux_Des', 3, [100,110,105,235]);
 
-    % --- 轨迹生成 ---
-    add_block('simulink/Sources/Step', [mdl '/Step_X'], ...
-        'Position',[30,100,60,120], 'Time','2','After','5','Before','0');
-    add_block('simulink/Sources/Step', [mdl '/Step_Y'], ...
-        'Position',[30,160,60,180], 'Time','5','After','3','Before','0');
-    add_block('simulink/Sources/Step', [mdl '/Step_Z'], ...
-        'Position',[30,220,60,240], 'Time','0','After','5','Before','0');
-    add_block('simulink/Signal Routing/Mux', [mdl '/Mux_Pos_Des'], ...
-        'Position',[110,110,115,235], 'Inputs','3');
+    %% ========== 位置环子系统 ==========
+    add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/PosCtrl'], ...
+        'Position',[200,100,370,240], 'BackgroundColor','cyan');
+    build_pos_ctrl(mdl);
 
-    % --- 位置环子系统 ---
-    add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Position_Ctrl'], ...
-        'Position',[220,100,400,250]);
-    build_pos_ctrl_subsys(mdl);
+    %% ========== 姿态环子系统 ==========
+    add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/AttCtrl'], ...
+        'Position',[430,80,600,260], 'BackgroundColor','green');
+    build_att_ctrl(mdl);
 
-    % --- 姿态环子系统 ---
-    add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Attitude_Ctrl'], ...
-        'Position',[470,80,650,270]);
-    build_att_ctrl_subsys(mdl);
-
-    % --- 混控器子系统 ---
+    %% ========== 混控器子系统 ==========
     add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Mixer'], ...
-        'Position',[720,100,880,250]);
-    build_mixer_subsys(mdl);
+        'Position',[660,100,820,240], 'BackgroundColor','yellow');
+    build_mixer(mdl);
 
-    % --- 电机子系统 ---
+    %% ========== 电机动力学子系统 ==========
     add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Motors'], ...
-        'Position',[950,100,1100,250]);
-    build_motor_subsys(mdl);
+        'Position',[880,100,1040,240], 'BackgroundColor','magenta');
+    build_motors(mdl);
 
-    % --- 动学子系统 ---
-    add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Dynamics_6DOF'], ...
-        'Position',[1170,80,1380,270]);
-    build_dynamics_subsys(mdl);
+    %% ========== 6DOF 动力学子系统 ==========
+    add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Dynamics6DOF'], ...
+        'Position',[1100,80,1300,260], 'BackgroundColor','red');
+    build_dynamics_6dof(mdl);
 
-    % --- 传感器子系统 ---
-    add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Sensors'], ...
-        'Position',[1050,320,1200,430]);
-    build_sensor_subsys(mdl);
+    %% ========== 反馈 Mux ==========
+    add_mux(mdl, 'Mux_FbPos', 3, [140,350,145,430]);
+    add_mux(mdl, 'Mux_FbAtt', 6, [370,350,375,480]);
 
-    % --- Scope ---
+    %% ========== Scope ==========
     add_block('simulink/Sinks/Scope', [mdl '/Scope_Pos'], ...
-        'Position',[1480,60,1520,100], 'NumInputPorts','2');
+        'Position',[1400,50,1440,90], 'NumInputPorts','2');
     add_block('simulink/Sinks/Scope', [mdl '/Scope_Att'], ...
-        'Position',[1480,130,1520,170]);
+        'Position',[1400,120,1440,160], 'NumInputPorts','2');
     add_block('simulink/Sinks/Scope', [mdl '/Scope_Motor'], ...
-        'Position',[1480,200,1520,240]);
-    add_block('simulink/Sinks/Scope', [mdl '/Scope_3D'], ...
-        'Position',[1480,270,1520,310]);
-
-    % --- To Workspace ---
+        'Position',[1400,190,1440,220]);
     add_block('simulink/Sinks/To Workspace', [mdl '/ToWS_Pos'], ...
-        'VariableName','pos_log','Position',[1480,340,1520,370]);
+        'VariableName','pos_log','Position',[1400,250,1440,280]);
     add_block('simulink/Sinks/To Workspace', [mdl '/ToWS_Att'], ...
-        'VariableName','att_log','Position',[1480,390,1520,420]);
+        'VariableName','att_log','Position',[1400,300,1440,330]);
 
-    % --- 反馈 Mux ---
-    add_block('simulink/Signal Routing/Mux', [mdl '/Mux_Fb_Pos'], ...
-        'Position',[160,350,165,430], 'Inputs','3');
-    add_block('simulink/Signal Routing/Mux', [mdl '/Mux_Fb_Att'], ...
-        'Position',[420,350,425,480], 'Inputs','6');
+    %% ========== 顶层连线 ==========
+    add_line(mdl, 'X_des/1', 'Mux_Des/1');
+    add_line(mdl, 'Y_des/1', 'Mux_Des/2');
+    add_line(mdl, 'Z_des/1', 'Mux_Des/3');
+    add_line(mdl, 'Mux_Des/1',  'PosCtrl/1');
+    add_line(mdl, 'PosCtrl/1',  'AttCtrl/1');   % att_des
+    add_line(mdl, 'PosCtrl/2',  'AttCtrl/2');   % thrust
+    add_line(mdl, 'PosCtrl/2',  'Mixer/1');     % thrust
+    add_line(mdl, 'AttCtrl/1',  'Mixer/2');     % torques
+    add_line(mdl, 'Mixer/1',    'Motors/1');    % omega_sq
+    add_line(mdl, 'Motors/1',   'Dynamics6DOF/1'); % omega
+
+    % 状态反馈: Dynamics6DOF → Demux → Mux → 控制器
+    % Dynamics6DOF 输出 12 维状态
+    add_line(mdl, 'Dynamics6DOF/1', 'Mux_FbPos/1');  % x
+    add_line(mdl, 'Dynamics6DOF/1', 'Mux_FbPos/2', 'autoroute','on');  % y
+    add_line(mdl, 'Dynamics6DOF/1', 'Mux_FbPos/3', 'autoroute','on');  % z
+    % 需要 Demux 来分离状态分量
     add_block('simulink/Signal Routing/Demux', [mdl '/Demux_State'], ...
-        'Position',[1430,100,1435,260], 'Outputs','12');
+        'Position',[1340,100,1345,250], 'Outputs','12');
+    add_line(mdl, 'Dynamics6DOF/1', 'Demux_State/1');
 
-    %% ===================== 顶层连线 =====================
-    % 轨迹 → Mux
-    add_line(mdl, 'Step_X/1', 'Mux_Pos_Des/1');
-    add_line(mdl, 'Step_Y/1', 'Mux_Pos_Des/2');
-    add_line(mdl, 'Step_Z/1', 'Mux_Pos_Des/3');
-    % Mux → 位置环
-    add_line(mdl, 'Mux_Pos_Des/1', 'Position_Ctrl/1');
-    % 位置环 → 姿态环
-    add_line(mdl, 'Position_Ctrl/1', 'Attitude_Ctrl/1');  % att_des
-    add_line(mdl, 'Position_Ctrl/2', 'Attitude_Ctrl/2');  % thrust
-    % 姿态环 → 混控器 (力矩)
-    add_line(mdl, 'Attitude_Ctrl/1', 'Mixer/2');
-    % 位置环 thrust → 混控器
-    add_line(mdl, 'Position_Ctrl/2', 'Mixer/1');
-    % 混控器 → 电机
-    add_line(mdl, 'Mixer/1', 'Motors/1');
-    % 电机 → 动力学
-    add_line(mdl, 'Motors/1', 'Dynamics_6DOF/1');
-    % 动力学 → Demux
-    add_line(mdl, 'Dynamics_6DOF/1', 'Demux_State/1');
-    % 反馈: pos
-    add_line(mdl, 'Demux_State/1', 'Mux_Fb_Pos/1');
-    add_line(mdl, 'Demux_State/2', 'Mux_Fb_Pos/2');
-    add_line(mdl, 'Demux_State/3', 'Mux_Fb_Pos/3');
-    add_line(mdl, 'Mux_Fb_Pos/1', 'Position_Ctrl/2');
-    % 反馈: att+rates
-    add_line(mdl, 'Demux_State/7',  'Mux_Fb_Att/1');
-    add_line(mdl, 'Demux_State/8',  'Mux_Fb_Att/2');
-    add_line(mdl, 'Demux_State/9',  'Mux_Fb_Att/3');
-    add_line(mdl, 'Demux_State/10', 'Mux_Fb_Att/4');
-    add_line(mdl, 'Demux_State/11', 'Mux_Fb_Att/5');
-    add_line(mdl, 'Demux_State/12', 'Mux_Fb_Att/6');
-    add_line(mdl, 'Mux_Fb_Att/1', 'Attitude_Ctrl/3');
+    % 位置反馈
+    add_line(mdl, 'Demux_State/1', 'Mux_FbPos/1');
+    add_line(mdl, 'Demux_State/2', 'Mux_FbPos/2');
+    add_line(mdl, 'Demux_State/3', 'Mux_FbPos/3');
+    add_line(mdl, 'Mux_FbPos/1',  'PosCtrl/2');
+
+    % 姿态+角速度反馈
+    add_line(mdl, 'Demux_State/7',  'Mux_FbAtt/1');
+    add_line(mdl, 'Demux_State/8',  'Mux_FbAtt/2');
+    add_line(mdl, 'Demux_State/9',  'Mux_FbAtt/3');
+    add_line(mdl, 'Demux_State/10', 'Mux_FbAtt/4');
+    add_line(mdl, 'Demux_State/11', 'Mux_FbAtt/5');
+    add_line(mdl, 'Demux_State/12', 'Mux_FbAtt/6');
+    add_line(mdl, 'Mux_FbAtt/1',   'AttCtrl/3');
+
     % Scope
-    add_line(mdl, 'Mux_Pos_Des/1', 'Scope_Pos/1');
-    add_line(mdl, 'Mux_Fb_Pos/1',  'Scope_Pos/2');
-    add_line(mdl, 'Mux_Fb_Att/1',  'Scope_Att/1');
-    add_line(mdl, 'Mixer/1',        'Scope_Motor/1');
-    add_line(mdl, 'Demux_State/1',  'ToWS_Pos/1');
-    add_line(mdl, 'Demux_State/7',  'ToWS_Att/1');
+    add_line(mdl, 'Mux_Des/1',     'Scope_Pos/1');
+    add_line(mdl, 'Mux_FbPos/1',   'Scope_Pos/2');
+    add_line(mdl, 'Mux_FbAtt/1',   'Scope_Att/1');
+    add_line(mdl, 'Mux_FbAtt/2',   'Scope_Att/2');
+    add_line(mdl, 'Mixer/1',       'Scope_Motor/1');
+    add_line(mdl, 'Demux_State/1', 'ToWS_Pos/1');
+    add_line(mdl, 'Demux_State/7', 'ToWS_Att/1');
 
     %% 保存
     save_system(mdl, fullfile(pwd, [mdl '.slx']));
-    fprintf('已生成: %s\n', fullfile(pwd, [mdl '.slx']));
+    fprintf('已生成: %s.slx — 打开后可直接运行\n', mdl);
 end
 
 %% ==================== 位置环子系统 ====================
-function build_pos_ctrl_subsys(mdl)
-    sys = [mdl '/Position_Ctrl'];
-    % 删除默认连线
+function build_pos_ctrl(mdl)
+    sys = [mdl '/PosCtrl'];
     delete_line(sys, 'In1/1', 'Out1/1');
-    delete_block([sys '/In1']);
-    delete_block([sys '/Out1']);
+    delete_block([sys '/In1']); delete_block([sys '/Out1']);
 
-    % 端口
     add_block('simulink/Sources/In1',     [sys '/pos_des'], 'Position',[20,60,40,75]);
     add_block('simulink/Sources/In1',     [sys '/pos_cur'], 'Position',[20,160,40,175]);
-    add_block('simulink/Sinks/Out1',      [sys '/att_des'], 'Position',[680,60,700,75]);
-    add_block('simulink/Sinks/Out1',      [sys '/thrust'],  'Position',[680,160,700,175]);
+    add_block('simulink/Sinks/Out1',      [sys '/att_des'], 'Position',[620,60,640,75]);
+    add_block('simulink/Sinks/Out1',      [sys '/thrust'],  'Position',[620,160,640,175]);
 
     % Demux
-    add_block('simulink/Signal Routing/Demux', [sys '/D1'], 'Position',[80,45,85,100], 'Outputs','3');
-    add_block('simulink/Signal Routing/Demux', [sys '/D2'], 'Position',[80,145,85,200], 'Outputs','3');
+    add_block('simulink/Signal Routing/Demux', [sys '/D1'], 'Position',[70,45,75,100], 'Outputs','3');
+    add_block('simulink/Signal Routing/Demux', [sys '/D2'], 'Position',[70,145,75,200], 'Outputs','3');
 
-    % Sum (误差)
-    add_block('simulink/Math Operations/Sum', [sys '/Sx'], 'Position',[140,50,160,70], 'Inputs','+-');
-    add_block('simulink/Math Operations/Sum', [sys '/Sy'], 'Position',[140,100,160,120], 'Inputs','+-');
-    add_block('simulink/Math Operations/Sum', [sys '/Sz'], 'Position',[140,150,160,170], 'Inputs','+-');
+    % 误差 Sum
+    add_block('simulink/Math Operations/Sum', [sys '/Sx'], 'Position',[130,50,150,70], 'Inputs','+-');
+    add_block('simulink/Math Operations/Sum', [sys '/Sy'], 'Position',[130,100,150,120], 'Inputs','+-');
+    add_block('simulink/Math Operations/Sum', [sys '/Sz'], 'Position',[130,150,150,170], 'Inputs','+-');
 
-    % PID
+    % PID 控制器 (标准 Simulink PID 块)
     add_block('simulink/Continuous/PID Controller', [sys '/PIDx'], ...
-        'Position',[200,45,280,75], 'P','1.5','I','0.2','D','0.8', ...
+        'Position',[190,45,270,75], 'P','1.5','I','0.2','D','0.8', ...
         'UpperSaturationLimit','10','LowerSaturationLimit','-10');
     add_block('simulink/Continuous/PID Controller', [sys '/PIDy'], ...
-        'Position',[200,95,280,125], 'P','1.5','I','0.2','D','0.8', ...
+        'Position',[190,95,270,125], 'P','1.5','I','0.2','D','0.8', ...
         'UpperSaturationLimit','10','LowerSaturationLimit','-10');
     add_block('simulink/Continuous/PID Controller', [sys '/PIDz'], ...
-        'Position',[200,145,280,175], 'P','2.0','I','0.3','D','1.0', ...
+        'Position',[190,145,270,175], 'P','2.0','I','0.3','D','1.0', ...
         'UpperSaturationLimit','5','LowerSaturationLimit','-5');
 
-    % 加速度→姿态转换: phi=atan2(ay,g), theta=-atan2(ax,g)
+    % 加速度→期望姿态: phi_d=atan2(ay,g), theta_d=-atan2(ax,g)
     add_block('simulink/Math Operations/Trigonometric Function', [sys '/atan2_R'], ...
-        'Position',[360,50,420,70], 'Operator','atan2');
+        'Position',[330,50,390,70], 'Operator','atan2');
     add_block('simulink/Math Operations/Trigonometric Function', [sys '/atan2_P'], ...
-        'Position',[360,110,420,130], 'Operator','atan2');
+        'Position',[330,110,390,130], 'Operator','atan2');
     add_block('simulink/Math Operations/Gain', [sys '/Neg'], ...
-        'Position',[460,110,500,130], 'Gain','-1');
+        'Position',[430,110,470,130], 'Gain','-1');
     add_block('simulink/Sources/Constant', [sys '/g'], ...
-        'Position',[300,180,330,200], 'Value','9.81');
-
-    % 偏航=0
+        'Position',[280,180,310,200], 'Value','9.81');
     add_block('simulink/Sources/Constant', [sys '/psi0'], ...
-        'Position',[520,150,550,170], 'Value','0');
-
-    % Mux att_des
+        'Position',[480,150,510,170], 'Value','0');
     add_block('simulink/Signal Routing/Mux', [sys '/MuxA'], ...
-        'Position',[600,50,605,175], 'Inputs','3');
-
-    % 推力 = m*g (悬停)
+        'Position',[540,50,545,175], 'Inputs','3');
     add_block('simulink/Sources/Constant', [sys '/T0'], ...
-        'Position',[520,200,560,220], 'Value','14.715');
+        'Position',[480,200,520,220], 'Value','14.715');
 
     % 连线
-    add_line(sys, 'pos_des/1','D1/1');
-    add_line(sys, 'pos_cur/1','D2/1');
+    add_line(sys, 'pos_des/1','D1/1'); add_line(sys, 'pos_cur/1','D2/1');
     add_line(sys, 'D1/1','Sx/1'); add_line(sys, 'D2/1','Sx/2');
     add_line(sys, 'D1/2','Sy/1'); add_line(sys, 'D2/2','Sy/2');
     add_line(sys, 'D1/3','Sz/1'); add_line(sys, 'D2/3','Sz/2');
-    add_line(sys, 'Sx/1','PIDx/1');
-    add_line(sys, 'Sy/1','PIDy/1');
-    add_line(sys, 'Sz/1','PIDz/1');
-    add_line(sys, 'PIDy/1','atan2_R/1');  add_line(sys, 'g/1','atan2_R/2');
-    add_line(sys, 'PIDx/1','atan2_P/1');  add_line(sys, 'g/1','atan2_P/2');
+    add_line(sys, 'Sx/1','PIDx/1'); add_line(sys, 'Sy/1','PIDy/1'); add_line(sys, 'Sz/1','PIDz/1');
+    add_line(sys, 'PIDy/1','atan2_R/1'); add_line(sys, 'g/1','atan2_R/2');
+    add_line(sys, 'PIDx/1','atan2_P/1'); add_line(sys, 'g/1','atan2_P/2');
     add_line(sys, 'atan2_P/1','Neg/1');
-    add_line(sys, 'atan2_R/1','MuxA/1');
-    add_line(sys, 'Neg/1',     'MuxA/2');
-    add_line(sys, 'psi0/1',    'MuxA/3');
+    add_line(sys, 'atan2_R/1','MuxA/1'); add_line(sys, 'Neg/1','MuxA/2'); add_line(sys, 'psi0/1','MuxA/3');
     add_line(sys, 'MuxA/1','att_des/1');
     add_line(sys, 'T0/1','thrust/1');
 end
 
 %% ==================== 姿态环子系统 ====================
-function build_att_ctrl_subsys(mdl)
-    sys = [mdl '/Attitude_Ctrl'];
+function build_att_ctrl(mdl)
+    sys = [mdl '/AttCtrl'];
     delete_line(sys, 'In1/1', 'Out1/1');
-    delete_block([sys '/In1']);
-    delete_block([sys '/Out1']);
+    delete_block([sys '/In1']); delete_block([sys '/Out1']);
 
-    add_block('simulink/Sources/In1', [sys '/att_des'],   'Position',[20,40,40,55]);
-    add_block('simulink/Sources/In1', [sys '/thrust_in'], 'Position',[20,100,40,115]);
+    add_block('simulink/Sources/In1', [sys '/att_des'],  'Position',[20,40,40,55]);
+    add_block('simulink/Sources/In1', [sys '/thr_in'],   'Position',[20,100,40,115]);
     add_block('simulink/Sources/In1', [sys '/att_cur'],   'Position',[20,200,40,215]);
-    add_block('simulink/Sinks/Out1',  [sys '/torques'],   'Position',[780,80,800,95]);
+    add_block('simulink/Sinks/Out1',  [sys '/torques'],  'Position',[750,80,770,95]);
 
     % Demux
     add_block('simulink/Signal Routing/Demux', [sys '/DD'], 'Position',[70,30,75,70], 'Outputs','3');
-    add_block('simulink/Signal Routing/Demux', [sys '/DC'], 'Position',[70,180,75,250], 'Outputs','6');
+    add_block('simulink/Signal Routing/Demux', [sys '/DC'], 'Position',[70,180,75,260], 'Outputs','6');
 
-    % 角度误差 Sum
-    add_block('simulink/Math Operations/Sum', [sys '/Se1'], 'Position',[130,30,150,50], 'Inputs','+-');
-    add_block('simulink/Math Operations/Sum', [sys '/Se2'], 'Position',[130,70,150,90], 'Inputs','+-');
-    add_block('simulink/Math Operations/Sum', [sys '/Se3'], 'Position',[130,110,150,130], 'Inputs','+-');
+    % 角度误差
+    add_block('simulink/Math Operations/Sum', [sys '/Se1'], 'Position',[120,30,140,50], 'Inputs','+-');
+    add_block('simulink/Math Operations/Sum', [sys '/Se2'], 'Position',[120,70,140,90], 'Inputs','+-');
+    add_block('simulink/Math Operations/Sum', [sys '/Se3'], 'Position',[120,110,140,130], 'Inputs','+-');
 
-    % P 增益 (角度)
-    add_block('simulink/Math Operations/Gain', [sys '/Kp_R'], 'Position',[190,25,240,55], 'Gain','4.0');
-    add_block('simulink/Math Operations/Gain', [sys '/Kp_P'], 'Position',[190,65,240,95], 'Gain','4.0');
-    add_block('simulink/Math Operations/Gain', [sys '/Kp_Y'], 'Position',[190,105,240,135], 'Gain','3.0');
+    % P 增益
+    add_block('simulink/Math Operations/Gain', [sys '/Kp1'], 'Position',[170,25,220,55], 'Gain','4.0');
+    add_block('simulink/Math Operations/Gain', [sys '/Kp2'], 'Position',[170,65,220,95], 'Gain','4.0');
+    add_block('simulink/Math Operations/Gain', [sys '/Kp3'], 'Position',[170,105,220,135], 'Gain','3.0');
 
     % D 增益 (角速度阻尼)
-    add_block('simulink/Math Operations/Gain', [sys '/Kd_R'], 'Position',[190,170,240,190], 'Gain','0.5');
-    add_block('simulink/Math Operations/Gain', [sys '/Kd_P'], 'Position',[190,200,240,220], 'Gain','0.5');
-    add_block('simulink/Math Operations/Gain', [sys '/Kd_Y'], 'Position',[190,230,240,250], 'Gain','0.8');
+    add_block('simulink/Math Operations/Gain', [sys '/Kd1'], 'Position',[170,170,220,190], 'Gain','0.5');
+    add_block('simulink/Math Operations/Gain', [sys '/Kd2'], 'Position',[170,200,220,220], 'Gain','0.5');
+    add_block('simulink/Math Operations/Gain', [sys '/Kd3'], 'Position',[170,230,220,250], 'Gain','0.8');
 
-    % P - D 合成
-    add_block('simulink/Math Operations/Sum', [sys '/Sd1'], 'Position',[300,30,320,50], 'Inputs','+-');
-    add_block('simulink/Math Operations/Sum', [sys '/Sd2'], 'Position',[300,70,320,90], 'Inputs','+-');
-    add_block('simulink/Math Operations/Sum', [sys '/Sd3'], 'Position',[300,110,320,130], 'Inputs','+-');
+    % P - D
+    add_block('simulink/Math Operations/Sum', [sys '/Sd1'], 'Position',[270,30,290,50], 'Inputs','+-');
+    add_block('simulink/Math Operations/Sum', [sys '/Sd2'], 'Position',[270,70,290,90], 'Inputs','+-');
+    add_block('simulink/Math Operations/Sum', [sys '/Sd3'], 'Position',[270,110,290,130], 'Inputs','+-');
 
-    % 饱和限幅
+    % 饱和
     add_block('simulink/Discontinuities/Saturation', [sys '/Sat1'], ...
-        'Position',[380,25,440,55], 'UpperLimit','5','LowerLimit','-5');
+        'Position',[340,25,400,55], 'UpperLimit','5','LowerLimit','-5');
     add_block('simulink/Discontinuities/Saturation', [sys '/Sat2'], ...
-        'Position',[380,65,440,95], 'UpperLimit','5','LowerLimit','-5');
+        'Position',[340,65,400,95], 'UpperLimit','5','LowerLimit','-5');
     add_block('simulink/Discontinuities/Saturation', [sys '/Sat3'], ...
-        'Position',[380,105,440,135], 'UpperLimit','2','LowerLimit','-2');
+        'Position',[340,105,400,135], 'UpperLimit','2','LowerLimit','-2');
 
-    % I 增益 (积分, 可选)
-    add_block('simulink/Continuous/Integrator', [sys '/Int_R'], ...
-        'Position',[480,25,520,45], 'InitialCondition','0');
-    add_block('simulink/Continuous/Integrator', [sys '/Int_P'], ...
-        'Position',[480,65,520,85], 'InitialCondition','0');
-    add_block('simulink/Continuous/Integrator', [sys '/Int_Y'], ...
-        'Position',[480,105,520,125], 'InitialCondition','0');
-    add_block('simulink/Math Operations/Gain', [sys '/Ki_R'], 'Position',[550,25,590,45], 'Gain','0.3');
-    add_block('simulink/Math Operations/Gain', [sys '/Ki_P'], 'Position',[550,65,590,85], 'Gain','0.3');
-    add_block('simulink/Math Operations/Gain', [sys '/Ki_Y'], 'Position',[550,105,590,125], 'Gain','0.1');
+    % I 增益
+    add_block('simulink/Continuous/Integrator', [sys '/Int1'], 'Position',[440,25,480,45]);
+    add_block('simulink/Continuous/Integrator', [sys '/Int2'], 'Position',[440,65,480,85]);
+    add_block('simulink/Continuous/Integrator', [sys '/Int3'], 'Position',[440,105,480,125]);
+    add_block('simulink/Math Operations/Gain', [sys '/Ki1'], 'Position',[510,25,550,45], 'Gain','0.3');
+    add_block('simulink/Math Operations/Gain', [sys '/Ki2'], 'Position',[510,65,550,85], 'Gain','0.3');
+    add_block('simulink/Math Operations/Gain', [sys '/Ki3'], 'Position',[510,105,550,125], 'Gain','0.1');
 
-    % P+D+I 合成
-    add_block('simulink/Math Operations/Sum', [sys '/St1'], 'Position',[630,25,650,50], 'Inputs','+++');
-    add_block('simulink/Math Operations/Sum', [sys '/St2'], 'Position',[630,65,650,90], 'Inputs','+++');
-    add_block('simulink/Math Operations/Sum', [sys '/St3'], 'Position',[630,105,650,130], 'Inputs','+++');
+    % P+D+I
+    add_block('simulink/Math Operations/Sum', [sys '/St1'], 'Position',[590,25,610,50], 'Inputs','+++');
+    add_block('simulink/Math Operations/Sum', [sys '/St2'], 'Position',[590,65,610,90], 'Inputs','+++');
+    add_block('simulink/Math Operations/Sum', [sys '/St3'], 'Position',[590,105,610,130], 'Inputs','+++');
 
-    % Mux 力矩
-    add_block('simulink/Signal Routing/Mux', [sys '/MuxT'], ...
-        'Position',[720,30,725,130], 'Inputs','3');
+    add_block('simulink/Signal Routing/Mux', [sys '/MuxT'], 'Position',[680,30,685,130], 'Inputs','3');
 
-    % 连线: 误差
-    add_line(sys, 'att_des/1','DD/1');
-    add_line(sys, 'att_cur/1','DC/1');
+    % 连线
+    add_line(sys, 'att_des/1','DD/1'); add_line(sys, 'att_cur/1','DC/1');
     add_line(sys, 'DD/1','Se1/1'); add_line(sys, 'DC/1','Se1/2');
     add_line(sys, 'DD/2','Se2/1'); add_line(sys, 'DC/2','Se2/2');
     add_line(sys, 'DD/3','Se3/1'); add_line(sys, 'DC/3','Se3/2');
-    % P
-    add_line(sys, 'Se1/1','Kp_R/1');
-    add_line(sys, 'Se2/1','Kp_P/1');
-    add_line(sys, 'Se3/1','Kp_Y/1');
-    % D
-    add_line(sys, 'DC/4','Kd_R/1');
-    add_line(sys, 'DC/5','Kd_P/1');
-    add_line(sys, 'DC/6','Kd_Y/1');
-    % P-D
-    add_line(sys, 'Kp_R/1','Sd1/1'); add_line(sys, 'Kd_R/1','Sd1/2');
-    add_line(sys, 'Kp_P/1','Sd2/1'); add_line(sys, 'Kd_P/1','Sd2/2');
-    add_line(sys, 'Kp_Y/1','Sd3/1'); add_line(sys, 'Kd_Y/1','Sd3/2');
-    % 饱和
-    add_line(sys, 'Sd1/1','Sat1/1');
-    add_line(sys, 'Sd2/1','Sat2/1');
-    add_line(sys, 'Sd3/1','Sat3/1');
-    % I
-    add_line(sys, 'Se1/1','Int_R/1'); add_line(sys, 'Int_R/1','Ki_R/1');
-    add_line(sys, 'Se2/1','Int_P/1'); add_line(sys, 'Int_P/1','Ki_P/1');
-    add_line(sys, 'Se3/1','Int_Y/1'); add_line(sys, 'Int_Y/1','Ki_Y/1');
-    % P+D+I
-    add_line(sys, 'Sat1/1','St1/1'); add_line(sys, 'Kd_R/1','St1/2'); add_line(sys, 'Ki_R/1','St1/3');
-    add_line(sys, 'Sat2/1','St2/1'); add_line(sys, 'Kd_P/1','St2/2'); add_line(sys, 'Ki_P/1','St2/3');
-    add_line(sys, 'Sat3/1','St3/1'); add_line(sys, 'Kd_Y/1','St3/2'); add_line(sys, 'Ki_Y/1','St3/3');
-    % 输出
-    add_line(sys, 'St1/1','MuxT/1');
-    add_line(sys, 'St2/1','MuxT/2');
-    add_line(sys, 'St3/1','MuxT/3');
+    add_line(sys, 'Se1/1','Kp1/1'); add_line(sys, 'Se2/1','Kp2/1'); add_line(sys, 'Se3/1','Kp3/1');
+    add_line(sys, 'DC/4','Kd1/1'); add_line(sys, 'DC/5','Kd2/1'); add_line(sys, 'DC/6','Kd3/1');
+    add_line(sys, 'Kp1/1','Sd1/1'); add_line(sys, 'Kd1/1','Sd1/2');
+    add_line(sys, 'Kp2/1','Sd2/1'); add_line(sys, 'Kd2/1','Sd2/2');
+    add_line(sys, 'Kp3/1','Sd3/1'); add_line(sys, 'Kd3/1','Sd3/2');
+    add_line(sys, 'Sd1/1','Sat1/1'); add_line(sys, 'Sd2/1','Sat2/1'); add_line(sys, 'Sd3/1','Sat3/1');
+    add_line(sys, 'Se1/1','Int1/1'); add_line(sys, 'Int1/1','Ki1/1');
+    add_line(sys, 'Se2/1','Int2/1'); add_line(sys, 'Int2/1','Ki2/1');
+    add_line(sys, 'Se3/1','Int3/1'); add_line(sys, 'Int3/1','Ki3/1');
+    add_line(sys, 'Sat1/1','St1/1'); add_line(sys, 'Kd1/1','St1/2'); add_line(sys, 'Ki1/1','St1/3');
+    add_line(sys, 'Sat2/1','St2/1'); add_line(sys, 'Kd2/1','St2/2'); add_line(sys, 'Ki2/1','St2/3');
+    add_line(sys, 'Sat3/1','St3/1'); add_line(sys, 'Kd3/1','St3/2'); add_line(sys, 'Ki3/1','St3/3');
+    add_line(sys, 'St1/1','MuxT/1'); add_line(sys, 'St2/1','MuxT/2'); add_line(sys, 'St3/1','MuxT/3');
     add_line(sys, 'MuxT/1','torques/1');
 end
 
 %% ==================== 混控器子系统 ====================
-function build_mixer_subsys(mdl)
+function build_mixer(mdl)
     sys = [mdl '/Mixer'];
     delete_line(sys, 'In1/1', 'Out1/1');
-    delete_block([sys '/In1']);
-    delete_block([sys '/Out1']);
+    delete_block([sys '/In1']); delete_block([sys '/Out1']);
 
     add_block('simulink/Sources/In1', [sys '/thrust'],  'Position',[20,40,40,55]);
     add_block('simulink/Sources/In1', [sys '/torques'], 'Position',[20,120,40,135]);
-    add_block('simulink/Sinks/Out1',  [sys '/omega_sq'],'Position',[520,80,540,95]);
+    add_block('simulink/Sinks/Out1',  [sys '/omega_sq'],'Position',[500,80,520,95]);
 
-    % Demux torques
     add_block('simulink/Signal Routing/Demux', [sys '/DT'], 'Position',[70,110,75,155], 'Outputs','3');
 
-    % 混控: 均分推力 + 力矩修正
-    add_block('simulink/Math Operations/Gain', [sys '/T/4'], 'Position',[120,30,160,50], 'Gain','0.25');
+    % T/4
+    add_block('simulink/Math Operations/Gain', [sys '/T4'], 'Position',[110,30,150,50], 'Gain','0.25');
 
-    % 电机1: T/4 + tau_psi - tau_phi
-    add_block('simulink/Math Operations/Sum', [sys '/S1'], 'Position',[220,20,240,45], 'Inputs','++-');
-    % 电机2: T/4 - tau_psi + tau_phi
-    add_block('simulink/Math Operations/Sum', [sys '/S2'], 'Position',[220,60,240,85], 'Inputs','+--');
-    % 电机3: T/4 + tau_psi - tau_theta
-    add_block('simulink/Math Operations/Sum', [sys '/S3'], 'Position',[220,100,240,125], 'Inputs','++-');
-    % 电机4: T/4 - tau_psi + tau_theta
-    add_block('simulink/Math Operations/Sum', [sys '/S4'], 'Position',[220,140,240,165], 'Inputs','+--');
+    % 混控: X型布局
+    % M1: T/4 + tau_psi - tau_phi
+    add_block('simulink/Math Operations/Sum', [sys '/S1'], 'Position',[200,15,220,45], 'Inputs','++-');
+    % M2: T/4 - tau_psi + tau_phi
+    add_block('simulink/Math Operations/Sum', [sys '/S2'], 'Position',[200,55,220,85], 'Inputs','+--');
+    % M3: T/4 + tau_psi - tau_theta
+    add_block('simulink/Math Operations/Sum', [sys '/S3'], 'Position',[200,95,220,125], 'Inputs','++-');
+    % M4: T/4 - tau_psi + tau_theta
+    add_block('simulink/Math Operations/Sum', [sys '/S4'], 'Position',[200,135,220,165], 'Inputs','+--');
 
-    % 限幅 (转速平方>=0)
-    add_block('simulink/Discontinuities/Saturation', [sys '/Sat1'], ...
-        'Position',[300,15,360,45], 'UpperLimit','1e6','LowerLimit','0');
-    add_block('simulink/Discontinuities/Saturation', [sys '/Sat2'], ...
-        'Position',[300,55,360,85], 'UpperLimit','1e6','LowerLimit','0');
-    add_block('simulink/Discontinuities/Saturation', [sys '/Sat3'], ...
-        'Position',[300,95,360,125], 'UpperLimit','1e6','LowerLimit','0');
-    add_block('simulink/Discontinuities/Saturation', [sys '/Sat4'], ...
-        'Position',[300,135,360,165], 'UpperLimit','1e6','LowerLimit','0');
+    % 限幅
+    add_block('simulink/Discontinuities/Saturation', [sys '/L1'], 'Position',[270,10,330,45], 'UpperLimit','1.5e6','LowerLimit','0');
+    add_block('simulink/Discontinuities/Saturation', [sys '/L2'], 'Position',[270,50,330,85], 'UpperLimit','1.5e6','LowerLimit','0');
+    add_block('simulink/Discontinuities/Saturation', [sys '/L3'], 'Position',[270,90,330,125],'UpperLimit','1.5e6','LowerLimit','0');
+    add_block('simulink/Discontinuities/Saturation', [sys '/L4'], 'Position',[270,130,330,165],'UpperLimit','1.5e6','LowerLimit','0');
 
-    % Mux
-    add_block('simulink/Signal Routing/Mux', [sys '/Mux'], ...
-        'Position',[430,20,435,165], 'Inputs','4');
+    add_block('simulink/Signal Routing/Mux', [sys '/Mux'], 'Position',[400,15,405,165], 'Inputs','4');
 
-    % 连线
-    add_line(sys, 'thrust/1','T/4/1');
+    add_line(sys, 'thrust/1','T4/1');
     add_line(sys, 'torques/1','DT/1');
-    add_line(sys, 'T/4/1','S1/1'); add_line(sys, 'DT/3','S1/2'); add_line(sys, 'DT/1','S1/3');
-    add_line(sys, 'T/4/1','S2/1'); add_line(sys, 'DT/3','S2/2'); add_line(sys, 'DT/1','S2/3');
-    add_line(sys, 'T/4/1','S3/1'); add_line(sys, 'DT/3','S3/2'); add_line(sys, 'DT/2','S3/3');
-    add_line(sys, 'T/4/1','S4/1'); add_line(sys, 'DT/3','S4/2'); add_line(sys, 'DT/2','S4/3');
-    add_line(sys, 'S1/1','Sat1/1'); add_line(sys, 'S2/1','Sat2/1');
-    add_line(sys, 'S3/1','Sat3/1'); add_line(sys, 'S4/1','Sat4/1');
-    add_line(sys, 'Sat1/1','Mux/1'); add_line(sys, 'Sat2/1','Mux/2');
-    add_line(sys, 'Sat3/1','Mux/3'); add_line(sys, 'Sat4/1','Mux/4');
+    add_line(sys, 'T4/1','S1/1'); add_line(sys, 'DT/3','S1/2'); add_line(sys, 'DT/1','S1/3');
+    add_line(sys, 'T4/1','S2/1'); add_line(sys, 'DT/3','S2/2'); add_line(sys, 'DT/1','S2/3');
+    add_line(sys, 'T4/1','S3/1'); add_line(sys, 'DT/3','S3/2'); add_line(sys, 'DT/2','S3/3');
+    add_line(sys, 'T4/1','S4/1'); add_line(sys, 'DT/3','S4/2'); add_line(sys, 'DT/2','S4/3');
+    add_line(sys, 'S1/1','L1/1'); add_line(sys, 'S2/1','L2/1'); add_line(sys, 'S3/1','L3/1'); add_line(sys, 'S4/1','L4/1');
+    add_line(sys, 'L1/1','Mux/1'); add_line(sys, 'L2/1','Mux/2'); add_line(sys, 'L3/1','Mux/3'); add_line(sys, 'L4/1','Mux/4');
     add_line(sys, 'Mux/1','omega_sq/1');
 end
 
-%% ==================== 电机子系统 ====================
-function build_motor_subsys(mdl)
+%% ==================== 电机动力学子系统 ====================
+function build_motors(mdl)
     sys = [mdl '/Motors'];
     delete_line(sys, 'In1/1', 'Out1/1');
-    delete_block([sys '/In1']);
-    delete_block([sys '/Out1']);
+    delete_block([sys '/In1']); delete_block([sys '/Out1']);
 
     add_block('simulink/Sources/In1', [sys '/omega_sq'], 'Position',[20,70,40,85]);
-    add_block('simulink/Sinks/Out1',  [sys '/omega'],    'Position',[480,70,500,85]);
+    add_block('simulink/Sinks/Out1',  [sys '/omega'],    'Position',[460,70,480,85]);
 
-    add_block('simulink/Signal Routing/Demux', [sys '/D'], 'Position',[80,50,85,110], 'Outputs','4');
+    add_block('simulink/Signal Routing/Demux', [sys '/D'], 'Position',[70,50,75,110], 'Outputs','4');
 
-    % 一阶惯性: tau=0.02s
-    add_block('simulink/Continuous/Transfer Fcn', [sys '/M1'], 'Position',[160,25,260,50], 'Numerator','[1]','Denominator','[0.02 1]');
-    add_block('simulink/Continuous/Transfer Fcn', [sys '/M2'], 'Position',[160,60,260,85], 'Numerator','[1]','Denominator','[0.02 1]');
-    add_block('simulink/Continuous/Transfer Fcn', [sys '/M3'], 'Position',[160,95,260,120],'Numerator','[1]','Denominator','[0.02 1]');
-    add_block('simulink/Continuous/Transfer Fcn', [sys '/M4'], 'Position',[160,130,260,155],'Numerator','[1]','Denominator','[0.02 1]');
+    % 一阶惯性传递函数: 1/(tau*s+1), tau=0.02s
+    for i = 1:4
+        name = sprintf('/M%d', i);
+        y = 15 + (i-1)*35;
+        add_block('simulink/Continuous/Transfer Fcn', [sys name], ...
+            'Position',[140,y,250,y+25], 'Numerator','[1]','Denominator','[0.02 1]');
+    end
 
-    % sqrt
-    add_block('simulink/Math Operations/Math Function', [sys '/Sq1'], 'Position',[310,25,350,50], 'Operator','sqrt');
-    add_block('simulink/Math Operations/Math Function', [sys '/Sq2'], 'Position',[310,60,350,85], 'Operator','sqrt');
-    add_block('simulink/Math Operations/Math Function', [sys '/Sq3'], 'Position',[310,95,350,120],'Operator','sqrt');
-    add_block('simulink/Math Operations/Math Function', [sys '/Sq4'], 'Position',[310,130,350,155],'Operator','sqrt');
+    % sqrt: omega = sqrt(omega_sq)
+    for i = 1:4
+        name = sprintf('/Sq%d', i);
+        y = 15 + (i-1)*35;
+        add_block('simulink/Math Operations/Math Function', [sys name], ...
+            'Position',[300,y,340,y+25], 'Operator','sqrt');
+    end
 
-    add_block('simulink/Signal Routing/Mux', [sys '/M'], 'Position',[410,30,415,150], 'Inputs','4');
+    add_block('simulink/Signal Routing/Mux', [sys '/Mux'], 'Position',[390,20,395,150], 'Inputs','4');
 
     add_line(sys, 'omega_sq/1','D/1');
-    add_line(sys, 'D/1','M1/1'); add_line(sys, 'D/2','M2/1'); add_line(sys, 'D/3','M3/1'); add_line(sys, 'D/4','M4/1');
-    add_line(sys, 'M1/1','Sq1/1'); add_line(sys, 'M2/1','Sq2/1'); add_line(sys, 'M3/1','Sq3/1'); add_line(sys, 'M4/1','Sq4/1');
-    add_line(sys, 'Sq1/1','M/1'); add_line(sys, 'Sq2/1','M/2'); add_line(sys, 'Sq3/1','M/3'); add_line(sys, 'Sq4/1','M/4');
-    add_line(sys, 'M/1','omega/1');
+    for i = 1:4
+        add_line(sys, sprintf('D/%d',i), sprintf('M%d/1',i));
+        add_line(sys, sprintf('M%d/1',i), sprintf('Sq%d/1',i));
+        add_line(sys, sprintf('Sq%d/1',i), sprintf('Mux/%d',i));
+    end
+    add_line(sys, 'Mux/1','omega/1');
 end
 
-%% ==================== 动学子系统 ====================
-function build_dynamics_subsys(mdl)
-    sys = [mdl '/Dynamics_6DOF'];
+%% ==================== 6DOF 动力学子系统 ====================
+function build_dynamics_6dof(mdl)
+    sys = [mdl '/Dynamics6DOF'];
     delete_line(sys, 'In1/1', 'Out1/1');
-    delete_block([sys '/In1']);
-    delete_block([sys '/Out1']);
+    delete_block([sys '/In1']); delete_block([sys '/Out1']);
 
     add_block('simulink/Sources/In1', [sys '/omega'], 'Position',[20,80,40,95]);
-    add_block('simulink/Sinks/Out1',  [sys '/state'], 'Position',[580,80,600,95]);
+    add_block('simulink/Sinks/Out1',  [sys '/state'], 'Position',[480,80,500,95]);
 
-    % MATLAB Function block 实现 6DOF
+    % MATLAB Function block — 内含完整 6DOF 代码
     add_block('simulink/User-Defined Functions/MATLAB Function', [sys '/dyn6dof'], ...
-        'Position',[200,50,420,130]);
+        'Position',[120,50,350,130]);
 
-    % 积分器
+    % 设置 MATLAB Function 代码
+    set_mafcn_code(sys, 'dyn6dof');
+
+    % 积分器: state_dot → state
     add_block('simulink/Continuous/Integrator', [sys '/Int'], ...
-        'Position',[470,65,520,115], 'InitialCondition','[0;0;0;0;0;0;0;0;0;0;0;0]');
+        'Position',[380,65,430,115], 'InitialCondition','[0;0;0;0;0;0;0;0;0;0;0;0]');
 
-    % 连线
     add_line(sys, 'omega/1','dyn6dof/1');
-    add_line(sys, 'dyn6dof/1','Int/1');
     add_line(sys, 'Int/1','dyn6dof/2');
+    add_line(sys, 'dyn6dof/1','Int/1');
     add_line(sys, 'Int/1','state/1');
 end
 
-%% ==================== 传感器子系统 ====================
-function build_sensor_subsys(mdl)
-    sys = [mdl '/Sensors'];
-    delete_line(sys, 'In1/1', 'Out1/1');
-    delete_block([sys '/In1']);
-    delete_block([sys '/Out1']);
+%% ==================== 设置 MATLAB Function 代码 ====================
+function set_mafcn_code(sys, blk_name)
+%SET_MAFCN_CODE  给 MATLAB Function block 写入动力学代码
+    blk_path = [sys '/' blk_name];
 
-    add_block('simulink/Sources/In1', [sys '/state_true'], 'Position',[20,50,40,65]);
-    add_block('simulink/Sinks/Out1',  [sys '/state_meas'], 'Position',[250,50,270,65]);
+    % 获取 Stateflow root
+    rt = sfroot;
 
-    % 噪声
-    add_block('simulink/Sources/Uniform Random Number', [sys '/noise'], ...
-        'Position',[80,90,140,110], 'Minimum','-0.05','Maximum','0.05');
-    add_block('simulink/Math Operations/Sum', [sys '/S'], 'Position',[170,50,190,70], 'Inputs','++');
+    % 找到 MATLAB Function block 的 chart
+    % 方法: 通过 Block 类型查找
+    all_blocks = rt.find('-isa','Stateflow.EMChart');
+    target = [];
+    for i = 1:numel(all_blocks)
+        if contains(all_blocks(i).Path, blk_path)
+            target = all_blocks(i);
+            break;
+        end
+    end
 
-    add_line(sys, 'state_true/1','S/1');
-    add_line(sys, 'noise/1','S/2');
-    add_line(sys, 'S/1','state_meas/1');
+    if isempty(target)
+        % 备用: 直接通过 Path 查找
+        try
+            target = get_param(blk_path, 'SFChartObject');
+        catch
+            warning('无法设置 MATLAB Function 代码, 请手动编辑 %s', blk_path);
+            return;
+        end
+    end
+
+    % 写入动力学函数代码
+    code = [
+        'function state_dot = fcn(omega_cmd, state)' newline ...
+        '%#codegen' newline ...
+        '%% 四旋翼 6DOF 动力学' newline ...
+        'm = 1.5; g = 9.81;' newline ...
+        'kt = 1.5e-5; kd = 2.0e-7; l = 0.225;' newline ...
+        'Ixx = 0.0035; Iyy = 0.0035; Izz = 0.0065;' newline ...
+        '' newline ...
+        'x=state(1); y=state(2); z=state(3);' newline ...
+        'vx=state(4); vy=state(5); vz=state(6);' newline ...
+        'phi=state(7); theta=state(8); psi=state(9);' newline ...
+        'p=state(10); q=state(11); r=state(12);' newline ...
+        '' newline ...
+        'w1=omega_cmd(1); w2=omega_cmd(2);' newline ...
+        'w3=omega_cmd(3); w4=omega_cmd(4);' newline ...
+        '' newline ...
+        'T = kt*(w1^2+w2^2+w3^2+w4^2);' newline ...
+        'tau_phi = l*kt*(w2^2-w4^2);' newline ...
+        'tau_theta = l*kt*(w3^2-w1^2);' newline ...
+        'tau_psi = kd*(w1^2-w2^2+w3^2-w4^2);' newline ...
+        '' newline ...
+        'cp=cos(phi); sp=sin(phi);' newline ...
+        'ct=cos(theta); st=sin(theta);' newline ...
+        'cb=cos(psi); sb=sin(psi);' newline ...
+        '' newline ...
+        'ax = (T/m)*(cb*st*cp + sb*sp);' newline ...
+        'ay = (T/m)*(sb*st*cp - cb*sp);' newline ...
+        'az = (T/m)*(ct*cp) - g;' newline ...
+        '' newline ...
+        'p_dot = (tau_phi + (Iyy-Izz)*q*r) / Ixx;' newline ...
+        'q_dot = (tau_theta + (Izz-Ixx)*p*r) / Iyy;' newline ...
+        'r_dot = (tau_psi + (Ixx-Iyy)*p*q) / Izz;' newline ...
+        '' newline ...
+        'phi_dot = p + q*sp*(st/ct) + r*cp*(st/ct);' newline ...
+        'theta_dot = q*cp - r*sp;' newline ...
+        'psi_dot = q*sp/ct + r*cp/ct;' newline ...
+        '' newline ...
+        'state_dot = [vx;vy;vz; ax;ay;az;' newline ...
+        '             phi_dot;theta_dot;psi_dot;' newline ...
+        '             p_dot;q_dot;r_dot];' newline ...
+        'end' newline
+    ];
+
+    try
+        target.Script = code;
+    catch
+        % 如果 Script 属性不可用, 尝试通过 children
+        try
+            eml = target.find('-isa','Stateflow.EMFunction');
+            if ~isempty(eml)
+                eml(1).Script = code;
+            end
+        catch
+            warning('自动设置代码失败, 请手动编辑 %s 中的 MATLAB Function', blk_path);
+        end
+    end
+end
+
+%% ==================== 工具函数 ====================
+function add_const(mdl, name, val, pos)
+    add_block('simulink/Sources/Constant', [mdl '/' name], ...
+        'Position', pos, 'Value', num2str(val));
+end
+
+function add_mux(mdl, name, n, pos)
+    add_block('simulink/Signal Routing/Mux', [mdl '/' name], ...
+        'Position', pos, 'Inputs', num2str(n));
 end
